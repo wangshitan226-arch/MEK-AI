@@ -9,6 +9,7 @@ from datetime import datetime
 
 from app.services.ai.model_manager import model_manager
 from app.services.memory.conversation_memory import conversation_memory_manager
+from app.services.employee_service import employee_service
 from app.agents.digital_employee_agent import DigitalEmployeeAgent
 from app.config.settings import settings
 from app.utils.logger import LoggerMixin, log_execution_time
@@ -237,15 +238,26 @@ class ChatService(LoggerMixin):
             # 创建聊天模型
             chat_model = model_manager.create_chat_model(config)
             
-            # 获取员工配置（这里使用模拟数据，后续应从数据库获取）
+            # 获取员工配置（从员工服务获取真实数据）
             employee_config = self._get_employee_config(employee_id)
+            
+            # 创建工具列表
+            tools = []
+            
+            # 如果员工配置了知识库，添加知识库检索工具
+            knowledge_base_ids = employee_config.get("knowledge_base_ids", [])
+            if knowledge_base_ids:
+                from app.agents.tools.knowledge_retrieval_tool import create_knowledge_retrieval_tool
+                knowledge_tool = create_knowledge_retrieval_tool(knowledge_base_ids)
+                tools.append(knowledge_tool)
+                self.log_info(f"为员工 {employee_id} 添加知识库检索工具，知识库: {knowledge_base_ids}")
             
             # 创建智能体
             agent = DigitalEmployeeAgent(
                 employee_id=employee_id,
                 employee_config=employee_config,
                 llm=chat_model,
-                tools=[]  # 初始没有工具，后续可以添加
+                tools=tools
             )
             
             # 存储智能体实例
@@ -263,7 +275,7 @@ class ChatService(LoggerMixin):
         """
         获取员工配置
         
-        注意：当前使用模拟数据，后续应从数据库获取
+        从员工服务获取真实员工数据
         
         Args:
             employee_id: 员工ID
@@ -272,29 +284,26 @@ class ChatService(LoggerMixin):
             Dict: 员工配置
         """
         
-        # 模拟员工数据
-        mock_employees = {
-            "mock_emp_001": {
-                "name": "AI助手",
-                "persona": "友好、专业、乐于助人的AI助手，总是以积极的态度回答用户的问题。",
-                "skills": ["回答问题", "信息查询", "简单对话"],
-                "temperature": 0.7,
-                "max_tokens": 1000
-            },
-            "mock_emp_002": {
-                "name": "技术支持专家",
-                "persona": "专业的技术支持专家，擅长解决技术问题，解释复杂概念。",
-                "skills": ["技术问题解答", "故障排除", "代码解释"],
-                "temperature": 0.3,
-                "max_tokens": 1500
+        # 从员工服务获取真实员工数据
+        employee = employee_service.get_employee(employee_id)
+        
+        if employee:
+            # 使用真实员工数据
+            return {
+                "name": employee.name,
+                "persona": employee.prompt or "专业的数字员工，为用户提供帮助和服务。",
+                "skills": employee.skills or ["基本对话", "信息提供"],
+                "temperature": settings.MODEL_TEMPERATURE,
+                "max_tokens": settings.MODEL_MAX_TOKENS,
+                "prompt": employee.prompt,
+                "knowledge_base_ids": employee.knowledge_base_ids,
+                "model": employee.model,
+                "industry": employee.industry,
+                "role": employee.role,
             }
-        }
         
-        # 如果员工ID在模拟数据中，返回对应配置
-        if employee_id in mock_employees:
-            return mock_employees[employee_id]
-        
-        # 否则返回默认配置
+        # 如果找不到员工，返回默认配置
+        self.log_warning(f"找不到员工 {employee_id}，使用默认配置")
         return {
             "name": f"员工{employee_id}",
             "persona": "专业的数字员工，为用户提供帮助和服务。",

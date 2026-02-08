@@ -433,14 +433,30 @@ DELETE /api/v1/chat/conversations/{id}     # 删除对话 ✅
 GET    /api/v1/chat/agents                 # 获取智能体列表 ✅
 ```
 
-#### 知识库API (预留)
+#### 知识库API (✅ 已实现)
 ```
-GET    /api/v1/knowledge-bases              # 获取知识库列表 ⏳
-POST   /api/v1/knowledge-bases              # 创建知识库 ⏳
-GET    /api/v1/knowledge-bases/{id}         # 获取知识库详情 ⏳
-PUT    /api/v1/knowledge-bases/{id}         # 更新知识库 ⏳
-DELETE /api/v1/knowledge-bases/{id}         # 删除知识库 ⏳
-POST   /api/v1/knowledge-bases/{id}/upload  # 上传文档 ⏳
+# 知识库管理
+GET    /api/v1/knowledge-bases                           # 获取知识库列表 ✅
+POST   /api/v1/knowledge-bases                           # 创建知识库 ✅
+GET    /api/v1/knowledge-bases/{id}                      # 获取知识库详情 ✅
+PUT    /api/v1/knowledge-bases/{id}                      # 更新知识库 ✅
+DELETE /api/v1/knowledge-bases/{id}                      # 删除知识库 ✅
+GET    /api/v1/knowledge-bases/{id}/stats                # 获取知识库统计 ✅
+
+# 文档管理
+POST   /api/v1/knowledge-bases/{id}/documents/upload     # 上传文档 ✅
+POST   /api/v1/knowledge-bases/{id}/documents/{file_id}/parse  # 解析文档 ✅
+GET    /api/v1/knowledge-bases/{id}/documents            # 获取文档列表 ✅
+
+# 知识点管理
+POST   /api/v1/knowledge-bases/{id}/knowledge            # 保存知识点 ✅
+DELETE /api/v1/knowledge-bases/{id}/knowledge/{item_id}  # 删除单个知识点 ✅
+DELETE /api/v1/knowledge-bases/{id}/knowledge            # 清空所有知识点 ✅
+
+# 搜索与配置
+POST   /api/v1/knowledge-bases/{id}/search               # 搜索知识库 ✅
+GET    /api/v1/knowledge-bases/config/document-processing # 获取文档配置 ✅
+PUT    /api/v1/knowledge-bases/config/document-processing # 更新文档配置 ✅
 ```
 
 ---
@@ -529,14 +545,33 @@ POST   /api/v1/knowledge-bases/{id}/upload  # 上传文档 ⏳
 - **核心文件**：
   - [marketplace.py](file:///d:/Project/MEK-AI/MEK-AI-V2/backend-python-ai/app/api/v1/endpoints/marketplace.py)
 
-### ⏳ 知识库模块 (完成度 20%)
-- **功能**：文档上传、向量化、知识检索
-- **状态**：目录结构创建，核心逻辑待实现
-- **依赖组件**：
-  - document_parser.py (预留)
-  - text_splitter.py (预留)
-  - embedding_service.py (预留)
-  - vector_store.py (预留)
+### ✅ 知识库模块 (完成度 90%)
+- **功能**：知识库CRUD、文档上传解析、知识点管理、搜索检索
+- **状态**：核心功能完整实现，内存存储
+- **核心服务** (`app/services/knowledge/`):
+  - `knowledge_service.py` - 知识库管理服务
+    - `create_knowledge_base()` - 创建知识库
+    - `get_knowledge_base()` - 获取知识库详情
+    - `update_knowledge_base()` - 更新知识库
+    - `delete_knowledge_base()` - 删除知识库
+    - `list_knowledge_bases()` - 列表查询（支持过滤、分页）
+    - `add_knowledge_items()` - 批量添加知识点
+    - `get_knowledge_items()` - 获取知识点列表
+    - `delete_knowledge_item()` - 删除单个知识点
+    - `clear_knowledge_items()` - 清空所有知识点
+    - `get_document_config()` - 获取文档配置
+    - `update_vectorized_status()` - 更新向量化状态
+- **API端点** (`app/api/v1/endpoints/knowledge.py`):
+  - 知识库CRUD端点 (6个)
+  - 文档上传/解析端点 (3个)
+  - 知识点管理端点 (3个)
+  - 搜索/配置端点 (3个)
+- **数据模型** (`app/models/schemas.py`):
+  - `KnowledgeBaseCreate/Update/Response` - 知识库模型
+  - `KnowledgeItemCreate/Response` - 知识点模型
+  - `DocumentUploadConfig` - 文档上传配置
+- **存储**：当前内存存储 (`_knowledge_bases`, `_knowledge_items`)
+- **待实现**：向量数据库存储、RAG检索增强
 
 ### ⏳ 文件处理模块 (完成度 10%)
 - **功能**：文件上传、存储、处理任务管理
@@ -716,7 +751,9 @@ module_name/
 #### 待实现模块
 | 模块 | 完成度 | 状态 | 说明 |
 |------|-------|------|------|
-| **知识库管理** | 20% | ⏳ 结构预留 | 文档处理待实现 |
+| **知识库管理** | 90% | ✅ 核心功能完成 | 内存存储实现，待向量数据库 |
+| **RAG检索** | 10% | ⏳ 结构预留 | 向量检索待实现 |
+| **数据库持久化** | 0% | ⏳ 未开始 | 计划使用PostgreSQL |
 | **文件上传** | 10% | ⏳ 端点预留 | 待开发 |
 | **RAG服务** | 10% | ⏳ 结构预留 | 待实现 |
 | **数据库持久化** | 0% | ⏳ 未开始 | 计划使用PostgreSQL |
@@ -744,12 +781,13 @@ MEK-AI Python AI服务采用 **分层架构** 设计，严格遵循关注点分�
 - ✅ 异步架构，高性能并发处理
 
 ### 下一步行动
-1. 实现知识库文档处理和向量化
-2. 完成RAG检索增强生成服务
-3. 添加数据库持久化层 (PostgreSQL)
-4. 优化对话记忆（Token限制、消息截断）
-5. 实现流式响应(SSE)
-6. 完善单元测试和集成测试
+1. ~~实现知识库文档处理和向量化~~ ✅ 已完成基础功能
+2. 实现向量数据库存储 (ChromaDB)
+3. 完成RAG检索增强生成服务
+4. 添加数据库持久化层 (PostgreSQL)
+5. 优化对话记忆（Token限制、消息截断）
+6. 实现流式响应(SSE)
+7. 完善单元测试和集成测试
 
 ---
 
@@ -769,8 +807,8 @@ MEK-AI Python AI服务采用 **分层架构** 设计，严格遵循关注点分�
 | **聊天服务** | `marketplace/mockData.ts` | ✅ 已实现 | 100% |
 | **数字员工CRUD** | `digital-employee/mockData.ts` | ✅ 已实现 | 100% |
 | **市场广场** | `marketplace/mockData.ts` | ✅ 已实现 | 100% |
-| **知识库管理** | `knowledge-base/mockData.ts` | ⏳ 需实现 | 0% |
-| **文件上传** | `knowledge-base/mockData.ts` | ⏳ 需实现 | 0% |
+| **知识库管理** | `knowledge-base/mockData.ts` | ✅ 已实现 | 100% |
+| **文件上传** | `knowledge-base/mockData.ts` | ✅ 已实现 | 100% |
 | **RAG检索** | - | ⏳ 需实现 | 0% |
 
 ### 前端适配要点

@@ -148,20 +148,39 @@ class DigitalEmployeeAgent(BaseAgent):
             if not self.agent_executor:
                 return await self._fallback_to_direct_llm(message, context, start_time)
             
-            # 获取对话历史
+            # 获取对话历史 - 从 context 中获取（chat_service 已经查询并放入）
+            # 或者自己查询，使用 get_conversation_history 返回字典格式
             conversation_id = context.get("conversation_id")
-            chat_history = []
-            if conversation_id:
-                chat_history = conversation_memory_manager.get_conversation_messages(
+            chat_history = context.get("chat_history", [])
+            
+            # 如果 context 中没有，自己查询
+            if not chat_history and conversation_id:
+                chat_history = conversation_memory_manager.get_conversation_history(
                     conversation_id, 
                     limit=10
                 )
             
-            # 【关键修复】ConversationChain 只接受 "input" 键
-            # 历史和系统提示已经通过 memory 和 prompt 模板处理
-            inputs = {
-                "input": message
-            }
+            # 根据是否有工具，使用不同的输入格式
+            if self.tools:
+                # 有工具时使用 ReAct Agent，需要提供 chat_history 和 input
+                # system_prompt 已经在 prompt 模板中通过 prefix 设置
+                # 注意：chat_history 是字典列表，使用 .get() 方法访问
+                formatted_history = []
+                for msg in chat_history:
+                    # 字典格式：{"role": "user"/"assistant", "content": "..."}
+                    role = "User" if msg.get('role') == 'user' else "AI"
+                    formatted_history.append(f"{role}: {msg.get('content', '')}")
+
+                inputs = {
+                    "input": message,
+                    "chat_history": "\n".join(formatted_history) if formatted_history else "No previous conversation."
+                }
+            else:
+                # 无工具时使用 LLMChain，只需要 input
+                # 历史和系统提示已经通过 memory 和 prompt 模板处理
+                inputs = {
+                    "input": message
+                }
             
             # 执行
             result = await self.agent_executor.ainvoke(inputs)

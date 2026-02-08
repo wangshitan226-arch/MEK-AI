@@ -71,6 +71,15 @@ export const EditDigitalEmployee: React.FC<EditDigitalEmployeeProps> = ({
 }) => {
   const [isKBDropdownOpen, setIsKBDropdownOpen] = useState(false);
   const kbDropdownRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // 自动滚动到最新消息
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [previewMessages]);
 
   // 点击外部关闭知识库下拉框
   useEffect(() => {
@@ -464,9 +473,9 @@ export const EditDigitalEmployee: React.FC<EditDigitalEmployeeProps> = ({
          </div>
 
          {/* Preview Body */}
-         <div className="flex-1 overflow-hidden relative bg-white">
+         <div className="flex-1 flex flex-col overflow-hidden relative bg-white">
             {!hasSaved && previewMessages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center bg-slate-50/50">
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center bg-slate-50/50">
                     <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
                         <Wand2 size={24} className="text-blue-400" />
                     </div>
@@ -474,7 +483,7 @@ export const EditDigitalEmployee: React.FC<EditDigitalEmployeeProps> = ({
                     <p className="text-xs text-slate-400">完善左侧信息并点击"保存"<br/>即可激活对话测试</p>
                 </div>
             ) : (
-                <div className="flex-1 overflow-y-auto p-5 space-y-6">
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-5 space-y-6">
                     {previewMessages.map((msg, idx) => (
                         <div key={idx} className={`flex group ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-start space-x-3`}>
                             {/* Bot Avatar */}
@@ -508,6 +517,8 @@ export const EditDigitalEmployee: React.FC<EditDigitalEmployeeProps> = ({
                             )}
                         </div>
                     ))}
+                    {/* 用于自动滚动的锚点 */}
+                    <div ref={messagesEndRef} />
                 </div>
             )}
          </div>

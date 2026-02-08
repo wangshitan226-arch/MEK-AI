@@ -22,8 +22,8 @@ export interface DigitalEmployeeActions {
   loadHiredEmployees: () => Promise<void>;
   
   // 创建员工操作
-  createDigitalEmployee: (config: { industry: string; role: string }) => Promise<CreatedEmployee>;
-  saveDigitalEmployee: (employee: CreatedEmployee) => Promise<CreatedEmployee>;
+  createDigitalEmployee: (employee: Partial<CreatedEmployee>) => Promise<CreatedEmployee>;
+  saveDigitalEmployee: (employee: Partial<CreatedEmployee>) => Promise<CreatedEmployee>;
   updateDigitalEmployee: (id: string, updates: Partial<CreatedEmployee>) => Promise<CreatedEmployee>;
   deleteDigitalEmployee: (id: string) => Promise<void>;
   publishDigitalEmployee: (id: string) => Promise<CreatedEmployee>;
@@ -88,7 +88,7 @@ export type DigitalEmployeeEditorStore = DigitalEmployeeEditorState & DigitalEmp
 // === 服务层接口 ===
 export interface IDigitalEmployeeService {
   // 创建员工
-  createDigitalEmployee: (config: { industry: string; role: string }) => Promise<CreatedEmployee>;
+  createDigitalEmployee: (employee: Partial<CreatedEmployee>) => Promise<CreatedEmployee>;
   
   // CRUD操作
   getCreatedEmployees: () => Promise<CreatedEmployee[]>;

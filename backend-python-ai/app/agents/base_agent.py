@@ -94,24 +94,6 @@ Final Answer: 最终答案
 
 注意：如果用户的问题不需要使用工具，请直接回答。"""
             
-            # 3. 创建提示模板（简化版，避免复杂的变量传递问题）
-            prompt = PromptTemplate.from_template(
-                """{system_prompt}
-
-历史对话：
-{chat_history}
-
-当前输入：{input}
-
-请根据以上信息进行回应："""
-            )
-            
-            # 4. 由于当前工具列表为空，我们使用最简单的代理
-            # 对于无工具的情况，实际上不需要完整的ReAct代理
-            # 我们创建一个简单的链来处理
-            from langchain.chains import LLMChain
-            from langchain.agents import Tool, AgentExecutor, ZeroShotAgent
-            
             # 如果确实没有工具，创建简单的对话链
             if not self.tools:
                 self.log_info("无工具模式：创建简单对话链")
@@ -142,16 +124,73 @@ Final Answer: 最终答案
                 # 有工具时创建ReAct代理
                 self.log_info(f"创建ReAct代理，工具数: {len(self.tools)}")
                 
+                # 使用ZeroShotAgent的标准方法创建提示模板
+                from langchain.agents import ZeroShotAgent, AgentExecutor
+                from langchain.chains import LLMChain
+                
+                # 构建RAG检索的系统提示
+                # 允许LLM自主判断是否需要使用知识库
+                rag_system_prompt = self.config.system_prompt + """
+
+INSTRUCTION: Use the knowledge_retrieval tool ONLY when you need specific information from the knowledge base to answer the question.
+Do NOT search for information you already have or for simple greetings/confirmations.
+
+Follow this workflow:
+1. Start with a Thought about what the user is asking
+2. If you ALREADY have enough information from previous conversation or general knowledge, go directly to Final Answer
+3. If you NEED specific information from the knowledge base, use the knowledge_retrieval tool with Action/Action Input
+4. Wait for the Observation (tool result)
+5. After getting information (or if you already had it), provide your Final Answer
+
+IMPORTANT: Do NOT keep searching repeatedly. Search once at most, then provide your answer.
+
+Use the following format:
+Thought: think about what to do and whether you need to search
+Action: the action to take (only if you need to search)
+Action Input: the input to the action
+Observation: the result of the action (this will be provided to you)
+Thought: I now know the final answer (or I already knew it)
+Final Answer: the final answer to the original question
+
+You have access to the following tools:"""
+                
+                # 使用ZeroShotAgent.create_prompt创建标准ReAct提示模板
+                # 注意：suffix 必须以 {agent_scratchpad} 结尾，不要预设 Thought
+                prompt = ZeroShotAgent.create_prompt(
+                    tools=self.tools,
+                    prefix=rag_system_prompt,
+                    suffix="""Begin!
+
+Previous conversation history:
+{chat_history}
+
+Question: {input}
+
+{agent_scratchpad}""",
+                    input_variables=["chat_history", "input", "agent_scratchpad"]
+                )
+                
+                # 创建LLM链
+                llm_chain = LLMChain(llm=self.llm, prompt=prompt)
+
                 # 使用ZeroShotAgent（ReAct代理的实现）
                 agent = ZeroShotAgent(
-                    llm_chain=LLMChain(llm=self.llm, prompt=prompt),
+                    llm_chain=llm_chain,
                     tools=self.tools,
                     verbose=True
                 )
-                
+
+                # 为ReAct Agent创建memory来维护对话历史
+                from langchain.memory import ConversationBufferMemory
+                memory = ConversationBufferMemory(
+                    memory_key="chat_history",
+                    return_messages=True
+                )
+
                 self.agent_executor = AgentExecutor.from_agent_and_tools(
                     agent=agent,
                     tools=self.tools,
+                    memory=memory,
                     verbose=True,
                     max_iterations=self.config.max_iterations,
                     handle_parsing_errors=True

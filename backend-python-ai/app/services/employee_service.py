@@ -371,6 +371,11 @@ class EmployeeService(LoggerMixin):
                 if emp_data.get("status") != "published":
                     continue
                 
+                # 排除用户自己创建的员工（只显示系统预设员工）
+                created_by = emp_data.get("created_by")
+                if created_by and created_by != "system":
+                    continue
+                
                 # 应用过滤条件
                 if category and category not in emp_data.get("category", []):
                     continue

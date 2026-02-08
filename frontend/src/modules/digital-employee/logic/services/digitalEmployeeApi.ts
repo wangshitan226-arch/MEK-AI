@@ -24,16 +24,23 @@ interface ApiResponse<T> {
  * 获取已创建的数字员工列表
  */
 export async function getCreatedEmployees(): Promise<CreatedEmployee[]> {
-  const response = await apiClient.get<ApiResponse<any[]>>(
-    API_ENDPOINTS.EMPLOYEES.LIST
+  // 获取当前用户ID
+  const userId = localStorage.getItem('userId') || 'anonymous';
+
+  const response = await apiClient.get<ApiResponse<any>>(
+    `${API_ENDPOINTS.EMPLOYEES.LIST}?created_by=${userId}`
   );
 
   if (!response.success || !response.data) {
     throw new Error(response.message || '获取数字员工列表失败');
   }
 
+  // 后端返回的数据结构是 { items: [...], total: ... }
+  // 需要提取 items 数组
+  const items = response.data.items || response.data;
+
   // 过滤出创建的数字员工（有 created 标签的）
-  const employees = transformEmployeesFromApi(response.data);
+  const employees = transformEmployeesFromApi(items);
   return employees.filter(
     (emp: any) => emp.tags?.includes('created') || emp.variant === 'created'
   ) as CreatedEmployee[];
@@ -60,15 +67,23 @@ export async function getDigitalEmployee(id: string): Promise<CreatedEmployee> {
 export async function createDigitalEmployee(
   employee: Partial<CreatedEmployee>
 ): Promise<CreatedEmployee> {
-  const data = transformEmployeeToApi({
+  const transformedData = transformEmployeeToApi({
     ...employee,
     tags: [...(employee.tags || []), 'created'],
     status: employee.status || 'draft',
   });
 
+  // 删除 id 字段，让后端生成
+  delete transformedData.id;
+
+  // 后端期望数据包装在 employee_data 键中
+  const requestBody = {
+    employee_data: transformedData
+  };
+
   const response = await apiClient.post<ApiResponse<any>>(
     API_ENDPOINTS.EMPLOYEES.CREATE,
-    data
+    requestBody
   );
 
   if (!response.success || !response.data) {
@@ -100,11 +115,16 @@ export async function updateDigitalEmployee(
   id: string,
   employee: Partial<CreatedEmployee>
 ): Promise<CreatedEmployee> {
-  const data = transformEmployeeToApi(employee);
+  const transformedData = transformEmployeeToApi(employee);
+
+  // 后端期望数据包装在 update_data 键中
+  const requestBody = {
+    update_data: transformedData
+  };
 
   const response = await apiClient.put<ApiResponse<any>>(
     API_ENDPOINTS.EMPLOYEES.UPDATE(id),
-    data
+    requestBody
   );
 
   if (!response.success || !response.data) {
@@ -151,16 +171,21 @@ export async function generatePreviewResponse(
   employeeId: string,
   input: string
 ): Promise<string> {
-  const response = await apiClient.post<{
-    message: string;
+  const response = await apiClient.post<ApiResponse<{
+    response: string;
     conversation_id?: string;
-  }>(API_ENDPOINTS.CHAT.SEND, {
+  }>>(API_ENDPOINTS.CHAT.SEND, {
     message: input,
     employee_id: employeeId,
     stream: false,
   });
 
-  return response.message || '暂无回复';
+  // 后端返回的数据结构: { success: true, message: "...", data: { response: "..." } }
+  if (response.success && response.data) {
+    return response.data.response || '暂无回复';
+  }
+  
+  return '预览功能暂时不可用';
 }
 
 /**

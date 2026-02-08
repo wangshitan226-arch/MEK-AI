@@ -21,10 +21,11 @@ useEffect(() => {
     // 如果是新创建（从弹窗跳转来的）
     if (location.state?.isNew) {
       // 打开空编辑器，使用弹窗传入的数据
+      // role 映射到 name（岗位名称）
       editorStore.setFormData({
         id,
         industry: location.state.industry || '',
-        role: location.state.role || '',
+        name: location.state.role || '',  // role 作为岗位名称
       });
       editorStore.openEditor();
     } else {
@@ -52,50 +53,51 @@ useEffect(() => {
   };
 
   // 处理保存草稿
-const handleSaveDraft = async () => {
-  try {
-    // 如果是新创建，直接保存表单数据，不要调用 createDigitalEmployee
-    if (location.state?.isNew) {
-      // 直接使用表单中的数据创建，不调用 Mock API 的 createDigitalEmployee
-      const employeeData: CreatedEmployee = {
-        id, // 使用URL中的临时ID
-        name: editorStore.formData.name || '未命名员工',
-        description: editorStore.formData.description || '',
-        avatar: editorStore.formData.avatar || '',
-        category: editorStore.formData.category || [],
-        tags: editorStore.formData.tags || ['created'],
-        price: editorStore.formData.price || 'free',
-        trialCount: editorStore.formData.trialCount || 0,
-        hireCount: editorStore.formData.hireCount || 0,
-        isHired: false,
-        isRecruited: false,
-        industry: editorStore.formData.industry || '',
-        role: editorStore.formData.role || '',
-        status: 'draft',
-        ...editorStore.formData,
-      };
-      
-      // 只调用 saveDigitalEmployee 一次
-      const savedEmployee = await store.saveDigitalEmployee(employeeData as CreatedEmployee);
-      
-      // 更新表单数据为已保存的状态
-      editorStore.setFormData(savedEmployee);
-      
-      // 替换URL，移除 isNew 标记
-      navigate(`/digital-employee/edit/${savedEmployee.id}`, { replace: true });
-      
-      return savedEmployee;
-    } else {
-      // 正常保存
-      const savedEmployee = await editorStore.saveDraft();
-      await store.saveDigitalEmployee(savedEmployee);
-      return savedEmployee;
+  const handleSaveDraft = async () => {
+    try {
+      // 如果是新创建，调用 createDigitalEmployee 创建新员工
+      if (location.state?.isNew) {
+        // 构建新员工数据（不包含ID，让后端生成）
+        const employeeData: Partial<CreatedEmployee> = {
+          name: editorStore.formData.name || '未命名员工',
+          description: editorStore.formData.description || '暂无描述',
+          avatar: editorStore.formData.avatar || '',
+          category: editorStore.formData.category || [],
+          tags: [...(editorStore.formData.tags || []), 'created'],
+          price: editorStore.formData.price || 'free',
+          trialCount: 0,
+          hireCount: 0,
+          isHired: false,
+          isRecruited: false,
+          industry: editorStore.formData.industry || '',
+          role: editorStore.formData.name || '',  // role 使用 name 的值（岗位名称）
+          prompt: editorStore.formData.prompt || '',
+          model: editorStore.formData.model || 'gemini-2.5-pro-preview',
+          knowledgeBaseIds: editorStore.formData.knowledgeBaseIds || [],
+          status: 'draft',
+        };
+
+        // 调用 createDigitalEmployee 创建新员工
+        const createdEmployee = await store.createDigitalEmployee(employeeData as CreatedEmployee);
+
+        // 更新编辑器状态
+        editorStore.setEditingEmployee(createdEmployee);
+        editorStore.setFormData(createdEmployee);
+
+        // 替换URL，移除 isNew 标记，使用后端返回的真实ID
+        navigate(`/digital-employee/edit/${createdEmployee.id}`, { replace: true });
+
+        return createdEmployee;
+      } else {
+        // 更新已有员工
+        const savedEmployee = await editorStore.saveDraft();
+        return savedEmployee;
+      }
+    } catch (error) {
+      console.error('保存草稿失败:', error);
+      throw error;
     }
-  } catch (error) {
-    console.error('保存草稿失败:', error);
-    throw error;
-  }
-};
+  };
 
   // 处理发布
   const handlePublish = async () => {

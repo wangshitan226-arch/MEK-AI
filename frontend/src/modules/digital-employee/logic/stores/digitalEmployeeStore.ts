@@ -65,10 +65,10 @@ export const useDigitalEmployeeStore = create<DigitalEmployeeStore>((set, get) =
   },
 
   // 创建数字员工（初始化）- 使用真实 API
-  createDigitalEmployee: async (config) => {
+  createDigitalEmployee: async (employee) => {
     set({ loading: true, error: null });
     try {
-      const newEmployee = await apiCreateDigitalEmployee(config);
+      const newEmployee = await apiCreateDigitalEmployee(employee);
 
       // 关键：立即添加到 createdEmployees，而不是只返回
       set((state) => ({

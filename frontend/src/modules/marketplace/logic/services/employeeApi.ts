@@ -29,10 +29,10 @@ interface TrialResponse {
 }
 
 /**
- * 获取员工列表
+ * 获取员工列表（市场广场）
  */
 export async function getEmployees(): Promise<Employee[]> {
-  const response = await apiClient.get<ApiResponse<any>>(API_ENDPOINTS.EMPLOYEES.LIST);
+  const response = await apiClient.get<ApiResponse<any>>(API_ENDPOINTS.MARKETPLACE.LIST);
 
   if (!response.success || !response.data) {
     throw new Error(response.message || '获取员工列表失败');

@@ -3,7 +3,7 @@
 """
 
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 
 from app.api.dependencies import get_current_user, get_optional_user, UserContext
 from app.services.employee_service import employee_service
@@ -33,6 +33,7 @@ router = APIRouter(prefix="/employees", tags=["employees"])
 async def get_employees(
     status_filter: Optional[str] = Query(None, alias="status", description="状态过滤: draft/published/archived"),
     category: Optional[str] = Query(None, description="分类过滤"),
+    created_by: Optional[str] = Query(None, description="创建者过滤: 指定用户ID获取该用户创建的员工"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页大小"),
     current_user: Optional[UserContext] = Depends(get_optional_user)
@@ -43,6 +44,7 @@ async def get_employees(
     Args:
         status_filter: 状态过滤
         category: 分类过滤
+        created_by: 创建者过滤
         page: 页码
         page_size: 每页大小
         current_user: 当前用户上下文
@@ -60,10 +62,13 @@ async def get_employees(
         # 如果是anonymous，视为未登录，不应用用户过滤
         if user_id == "anonymous":
             user_id = None
+        
+        # 如果指定了 created_by 参数，优先使用它进行过滤
+        filter_user_id = created_by if created_by else user_id
 
         # 获取员工列表
         employees = employee_service.list_employees(
-            user_id=user_id,
+            user_id=filter_user_id,
             status=status_filter,
             category=category,
             limit=page_size,
@@ -117,15 +122,15 @@ async def create_employee(
 ) -> SuccessResponse:
     """
     创建员工端点
-    
+
     Args:
         employee_data: 员工数据
         current_user: 当前用户上下文
-        
+
     Returns:
         SuccessResponse: 成功响应，包含创建的员工信息
     """
-    
+
     try:
         # 创建员工
         employee = employee_service.create_employee(employee_data, current_user.user_id)
