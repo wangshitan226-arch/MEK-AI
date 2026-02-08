@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "types": ["node","vite/client"], // 支持path等Node API，保留
+    "moduleResolution": "bundler", // 兼容@types/node和所有Vite插件
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/*"] // 关键：和Vite的alias完全一致
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "esModuleInterop": true, // 兼容CommonJS模块（必加）
+    "resolveJsonModule": true, // 支持导入json，Vite适配
+    "forceConsistentCasingInFileNames": true // 避免跨系统路径问题
+  },
+  "include": [
+    "src/**/*", 
+    "vite.config.ts" // 必加：让TS解析Vite配置文件，识别插件引入
+  ],
+  "exclude": [
+    "node_modules", 
+    "dist"
+  ]
+}

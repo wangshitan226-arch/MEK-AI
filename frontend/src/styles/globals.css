@@ -1,0 +1,29 @@
+/* src/styles/globals.css */
+@import "tailwindcss";
+
+/* 自定义样式 */
+.app-container {
+  min-height: 100vh;
+  background-color: #f8fafc;
+}
+
+.main-content {
+  padding: 2rem;
+}
+
+/* 加载状态动画 */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.loading-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 1rem;
+  }
+}

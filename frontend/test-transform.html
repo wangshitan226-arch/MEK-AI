@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Transform</title>
+</head>
+<body>
+    <script>
+        function snakeToCamel(str) {
+            return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        }
+
+        function keysToCamel(obj) {
+            if (obj === null || obj === undefined) {
+                return obj;
+            }
+
+            if (Array.isArray(obj)) {
+                return obj.map(item => keysToCamel(item));
+            }
+
+            if (typeof obj !== 'object') {
+                return obj;
+            }
+
+            const result = {};
+            for (const [key, value] of Object.entries(obj)) {
+                const camelKey = snakeToCamel(key);
+                result[camelKey] = keysToCamel(value);
+            }
+            return result;
+        }
+
+        // 测试
+        const testData = {
+            id: 'kb_123',
+            name: '测试知识库',
+            doc_count: 77,
+            created_at: '2024-01-01'
+        };
+
+        const result = keysToCamel(testData);
+        console.log('原始数据:', testData);
+        console.log('转换后:', result);
+        console.log('docCount:', result.docCount);
+        
+        document.body.innerHTML = `
+            <h1>Transform Test</h1>
+            <p>原始 doc_count: ${testData.doc_count}</p>
+            <p>转换后 docCount: ${result.docCount}</p>
+            <p>测试通过: ${result.docCount === 77 ? 'YES' : 'NO'}</p>
+        `;
+    </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Python AI服务
+  mek-ai-python:
+    build: .
+    container_name: mek-ai-python
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENVIRONMENT=development
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-mock-key}
+      - REDIS_HOST=redis
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    depends_on:
+      - redis
+    networks:
+      - mek-ai-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis服务
+  redis:
+    image: redis:7-alpine
+    container_name: mek-ai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - mek-ai-network
+    command: redis-server --appendonly yes
+
+  # ChromaDB向量数据库（开发环境）
+  chromadb:
+    image: chromadb/chroma:0.4.18
+    container_name: mek-ai-chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - CHROMA_SERVER_AUTHN_CREDENTIALS=admin:admin
+      - CHROMA_SERVER_AUTHN_PROVIDER=chromadb.auth.token_authn.TokenAuthenticationServerProvider
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/data
+    volumes:
+      - chroma-data:/data
+    networks:
+      - mek-ai-network
+
+volumes:
+  redis-data:
+    driver: local
+  chroma-data:
+    driver: local
+
+networks:
+  mek-ai-network:
+    driver: bridge

@@ -1,0 +1,49 @@
+# 核心框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# AI框架与LLM集成
+langchain>=0.1.0,<0.2
+langchain-openai==0.0.5
+langchain-community==0.0.38
+openai>=1.10.0,<2.0.0 
+google-generativeai==0.3.1
+anthropic>=0.16.0,<1
+
+# 文档处理
+pypdf==3.17.0
+python-docx==1.1.0
+unstructured==0.10.30
+pdf2image==1.16.3
+tiktoken>=0.5.2, <0.6.0
+
+# 向量数据库
+chromadb==0.4.18
+sentence-transformers==2.2.2
+
+# 异步与任务队列
+celery==5.3.4
+redis==5.0.1
+
+# 工具与工具包
+requests==2.31.0
+aiofiles==23.2.1
+python-multipart==0.0.6
+python-dotenv==1.0.0
+
+# 开发工具
+black==23.11.0
+flake8==6.1.0
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.1
+
+# LangChain核心
+langchain-core>=0.1.16,<0.2
+langchain-text-splitters==0.0.1
+
+# 其他LangChain工具
+langchain-anthropic==0.0.2
+langchain-google-genai==0.0.2
