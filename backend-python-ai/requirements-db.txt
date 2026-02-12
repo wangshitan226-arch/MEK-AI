@@ -1,0 +1,14 @@
+# 数据库相关依赖
+# 添加到 requirements.txt 中
+
+# SQLAlchemy ORM
+sqlalchemy>=2.0.0,<3.0.0
+
+# MySQL驱动
+pymysql>=1.1.0
+
+# 数据库迁移工具（可选）
+alembic>=1.12.0
+
+# 异步支持（如果需要）
+# asyncmy>=0.2.0

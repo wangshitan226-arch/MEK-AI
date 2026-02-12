@@ -7,6 +7,7 @@ import json
 import aiohttp
 import requests
 import logging
+import time
 from typing import Any, Dict, List, Optional, AsyncIterator, Iterator
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
@@ -18,6 +19,115 @@ from app.config.settings import settings
 
 # 创建模块级别的日志记录器
 logger = logging.getLogger(__name__)
+
+
+def retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0):
+    """
+    重试装饰器 - 带指数退避
+    
+    Args:
+        max_retries: 最大重试次数
+        base_delay: 基础延迟（秒）
+        max_delay: 最大延迟（秒）
+    """
+    def decorator(func):
+        async def async_wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    
+                    # 检查是否应该重试
+                    error_str = str(e).lower()
+                    
+                    # 这些错误不重试
+                    if any(err in error_str for err in [
+                        'invalid api key',
+                        'authentication',
+                        'unauthorized',
+                        'bad request',
+                        'invalid request'
+                    ]):
+                        logger.error(f"请求错误，不重试: {e}")
+                        raise
+                    
+                    # 最后一次尝试，抛出异常
+                    if attempt == max_retries - 1:
+                        logger.error(f"达到最大重试次数 ({max_retries})，最后错误: {e}")
+                        raise
+                    
+                    # 计算延迟时间（指数退避）
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    
+                    # 添加随机抖动，避免同时重试
+                    import random
+                    delay = delay * (0.5 + random.random())
+                    
+                    logger.warning(f"API调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                    logger.info(f"等待 {delay:.2f} 秒后重试...")
+                    
+                    await asyncio.sleep(delay)
+            
+            raise last_exception
+        
+        def sync_wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    
+                    # 检查是否应该重试
+                    error_str = str(e).lower()
+                    
+                    # 这些错误不重试
+                    if any(err in error_str for err in [
+                        'invalid api key',
+                        'authentication',
+                        'unauthorized',
+                        'bad request',
+                        'invalid request'
+                    ]):
+                        logger.error(f"请求错误，不重试: {e}")
+                        raise
+                    
+                    # 最后一次尝试，抛出异常
+                    if attempt == max_retries - 1:
+                        logger.error(f"达到最大重试次数 ({max_retries})，最后错误: {e}")
+                        raise
+                    
+                    # 计算延迟时间（指数退避）
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    
+                    # 添加随机抖动
+                    import random
+                    delay = delay * (0.5 + random.random())
+                    
+                    logger.warning(f"API调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                    logger.info(f"等待 {delay:.2f} 秒后重试...")
+                    
+                    time.sleep(delay)
+            
+            raise last_exception
+        
+        import asyncio
+        import functools
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if asyncio.iscoroutinefunction(func):
+                return async_wrapper(*args, **kwargs)
+            else:
+                return sync_wrapper(*args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
 
 
 class ChatDeepSeek(BaseChatModel):
@@ -113,6 +223,7 @@ class ChatDeepSeek(BaseChatModel):
             "Accept": "application/json"
         }
     
+    @retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0)
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -121,52 +232,48 @@ class ChatDeepSeek(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """
-        同步生成回复
+        同步生成回复（带重试机制）
         """
-        try:
-            # 构建请求
-            url = f"{self.base_url}/chat/completions"
-            headers = self._create_headers()
-            body = self._create_request_body(messages, **kwargs)
+        # 构建请求
+        url = f"{self.base_url}/chat/completions"
+        headers = self._create_headers()
+        body = self._create_request_body(messages, **kwargs)
+        
+        # 添加停止词
+        if stop:
+            body["stop"] = stop
+        
+        logger.debug(f"发送请求到 DeepSeek: {url}")
+        
+        # 发送请求
+        response = requests.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=self.timeout
+        )
+        
+        # 检查响应
+        if response.status_code != 200:
+            error_msg = f"DeepSeek API 错误: {response.status_code} - {response.text}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # 解析响应
+        result = response.json()
+        
+        # 提取消息内容
+        if "choices" in result and len(result["choices"]) > 0:
+            message_content = result["choices"][0]["message"]["content"]
+            message = AIMessage(content=message_content)
             
-            # 添加停止词
-            if stop:
-                body["stop"] = stop
-            
-            logger.debug(f"发送请求到 DeepSeek: {url}")
-            
-            # 发送请求
-            response = requests.post(
-                url,
-                headers=headers,
-                json=body,
-                timeout=self.timeout
-            )
-            
-            # 检查响应
-            if response.status_code != 200:
-                error_msg = f"DeepSeek API 错误: {response.status_code} - {response.text}"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            
-            # 解析响应
-            result = response.json()
-            
-            # 提取消息内容
-            if "choices" in result and len(result["choices"]) > 0:
-                message_content = result["choices"][0]["message"]["content"]
-                message = AIMessage(content=message_content)
-                
-                # 构建 ChatResult
-                generation = ChatGeneration(message=message)
-                return ChatResult(generations=[generation])
-            else:
-                raise ValueError(f"响应格式异常: {result}")
-                
-        except Exception as e:
-            logger.error(f"DeepSeek 调用失败: {str(e)}")
-            raise
+            # 构建 ChatResult
+            generation = ChatGeneration(message=message)
+            return ChatResult(generations=[generation])
+        else:
+            raise ValueError(f"响应格式异常: {result}")
     
+    @retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=10.0)
     async def _agenerate(
         self,
         messages: List[BaseMessage],
@@ -175,52 +282,47 @@ class ChatDeepSeek(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """
-        异步生成回复
+        异步生成回复（带重试机制）
         """
-        try:
-            # 构建请求
-            url = f"{self.base_url}/chat/completions"
-            headers = self._create_headers()
-            body = self._create_request_body(messages, **kwargs)
-            
-            # 添加停止词
-            if stop:
-                body["stop"] = stop
-            
-            logger.debug(f"异步发送请求到 DeepSeek: {url}")
-            
-            # 异步发送请求
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url,
-                    headers=headers,
-                    json=body,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
-                ) as response:
+        # 构建请求
+        url = f"{self.base_url}/chat/completions"
+        headers = self._create_headers()
+        body = self._create_request_body(messages, **kwargs)
+        
+        # 添加停止词
+        if stop:
+            body["stop"] = stop
+        
+        logger.debug(f"异步发送请求到 DeepSeek: {url}")
+        
+        # 异步发送请求
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as response:
+                
+                if response.status != 200:
+                    error_text = await response.text()
+                    error_msg = f"DeepSeek API 错误: {response.status} - {error_text}"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # 解析响应
+                result = await response.json()
+                
+                # 提取消息内容
+                if "choices" in result and len(result["choices"]) > 0:
+                    message_content = result["choices"][0]["message"]["content"]
+                    message = AIMessage(content=message_content)
                     
-                    if response.status != 200:
-                        error_text = await response.text()
-                        error_msg = f"DeepSeek API 错误: {response.status} - {error_text}"
-                        logger.error(error_msg)
-                        raise ValueError(error_msg)
-                    
-                    # 解析响应
-                    result = await response.json()
-                    
-                    # 提取消息内容
-                    if "choices" in result and len(result["choices"]) > 0:
-                        message_content = result["choices"][0]["message"]["content"]
-                        message = AIMessage(content=message_content)
-                        
-                        # 构建 ChatResult
-                        generation = ChatGeneration(message=message)
-                        return ChatResult(generations=[generation])
-                    else:
-                        raise ValueError(f"响应格式异常: {result}")
-                        
-        except Exception as e:
-            logger.error(f"DeepSeek 异步调用失败: {str(e)}")
-            raise
+                    # 构建 ChatResult
+                    generation = ChatGeneration(message=message)
+                    return ChatResult(generations=[generation])
+                else:
+                    raise ValueError(f"响应格式异常: {result}")
     
     def get_num_tokens(self, text: str) -> int:
         """

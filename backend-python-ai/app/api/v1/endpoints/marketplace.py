@@ -1,12 +1,16 @@
 """
-市场广场API端点
+市场广场API端点 - MySQL版本
 """
 
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_optional_user, UserContext
+from app.db import get_db
 from app.services.employee_service import employee_service
+from app.db.repositories import employee_repository
+from app.db.models import Employee
 from app.models.schemas import (
     SuccessResponse,
     MarketplaceFilter,
@@ -19,6 +23,7 @@ logger = get_logger(__name__)
 
 # 创建路由器
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
+
 
 @router.get(
     "/employees",
@@ -35,7 +40,8 @@ async def get_marketplace_employees(
     search: Optional[str] = Query(None, description="搜索关键词"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页大小"),
-    current_user: Optional[UserContext] = Depends(get_optional_user)
+    current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     获取市场员工列表端点
@@ -50,6 +56,7 @@ async def get_marketplace_employees(
         page: 页码
         page_size: 每页大小
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含市场员工列表
@@ -64,8 +71,18 @@ async def get_marketplace_employees(
         # 计算偏移量
         offset = (page - 1) * page_size
         
-        # 获取市场员工列表
+        # 获取当前用户ID
+        user_id = current_user.user_id if current_user else None
+        
+        # 调试日志
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[DEBUG] current_user: {current_user}, user_id: {user_id}")
+        
+        # 获取市场员工列表（包含当前用户的雇佣状态）
         employees = employee_service.get_marketplace_employees(
+            db=db,
+            user_id=user_id,
             category=category,
             industry=industry,
             min_price=min_price,
@@ -76,14 +93,14 @@ async def get_marketplace_employees(
             offset=offset
         )
         
-        # 获取总数 - 修复这里：使用 emp_id 而不是 emp
-        total_employees = len([
-            emp_id for emp_id, emp_data in employee_service._employees.items()
-            if emp_data.get("status") == "published"
-        ])
+        # 获取总数 - 从数据库查询已发布的员工数量
+        from sqlalchemy import func
+        total_employees = db.query(func.count(Employee.id)).filter(
+            Employee.status == "published"
+        ).scalar() or 0
         
         # 计算总页数
-        total_pages = (total_employees + page_size - 1) // page_size
+        total_pages = (total_employees + page_size - 1) // page_size if total_employees > 0 else 1
         
         user_id = current_user.user_id if current_user else "anonymous"
         logger.info(f"获取市场员工列表 - 用户: {user_id}, 页码: {page}, 数量: {len(employees)}")
@@ -110,6 +127,7 @@ async def get_marketplace_employees(
             detail=f"获取市场员工列表时发生错误: {str(e)}"
         )
 
+
 @router.get(
     "/categories",
     response_model=SuccessResponse,
@@ -117,26 +135,29 @@ async def get_marketplace_employees(
     description="获取市场广场上的员工分类列表"
 )
 async def get_marketplace_categories(
-    current_user: Optional[UserContext] = Depends(get_optional_user)
+    current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     获取分类列表端点
     
     Args:
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含分类列表
     """
     
     try:
+        # 从数据库查询所有已发布员工的分类
+        employees = db.query(Employee).filter(Employee.status == "published").all()
+        
         # 收集所有分类
         categories = set()
-        
-        for emp_id, emp_data in employee_service._employees.items():
-            if emp_data.get("status") == "published":
-                for category in emp_data.get("category", []):
-                    categories.add(category)
+        for emp in employees:
+            for category in (emp.category or []):
+                categories.add(category)
         
         # 转换为列表
         category_list = list(categories)
@@ -161,6 +182,7 @@ async def get_marketplace_categories(
             detail=f"获取分类列表时发生错误: {str(e)}"
         )
 
+
 @router.get(
     "/industries",
     response_model=SuccessResponse,
@@ -168,27 +190,32 @@ async def get_marketplace_categories(
     description="获取市场广场上的员工行业列表"
 )
 async def get_marketplace_industries(
-    current_user: UserContext = Depends(get_current_user)
+    current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     获取行业列表端点
     
     Args:
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含行业列表
     """
     
     try:
+        # 从数据库查询所有已发布员工的行业
+        employees = db.query(Employee).filter(
+            Employee.status == "published",
+            Employee.industry.isnot(None)
+        ).all()
+        
         # 收集所有行业
         industries = set()
-        
-        for emp_id, emp_data in employee_service._employees.items():
-            if emp_data.get("status") == "published":
-                industry = emp_data.get("industry")
-                if industry:
-                    industries.add(industry)
+        for emp in employees:
+            if emp.industry:
+                industries.add(emp.industry)
         
         # 转换为列表
         industry_list = list(industries)
@@ -213,6 +240,7 @@ async def get_marketplace_industries(
             detail=f"获取行业列表时发生错误: {str(e)}"
         )
 
+
 @router.post(
     "/{employee_id}/hire",
     response_model=SuccessResponse,
@@ -222,7 +250,8 @@ async def get_marketplace_industries(
 async def hire_employee(
     employee_id: str,
     hire_request: HireRequest,
-    current_user: Optional[UserContext] = Depends(get_optional_user)
+    current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     雇佣员工端点
@@ -231,6 +260,7 @@ async def hire_employee(
         employee_id: 员工ID
         hire_request: 雇佣请求
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含雇佣结果
@@ -238,7 +268,7 @@ async def hire_employee(
     
     try:
         # 检查员工是否存在且已发布
-        existing_employee = employee_service.get_employee(employee_id)
+        existing_employee = employee_service.get_employee(db=db, employee_id=employee_id)
         
         if not existing_employee:
             raise HTTPException(
@@ -252,17 +282,31 @@ async def hire_employee(
                 detail="只能雇佣已发布的员工"
             )
         
-        # 检查是否已雇佣
-        if existing_employee.is_hired:
+        # 获取当前用户ID
+        user_id = current_user.user_id if current_user else "anonymous"
+        
+        # 检查当前用户是否已雇佣该员工（查询hire_records表）
+        from app.db.models import HireRecord
+        existing_hire = db.query(HireRecord).filter(
+            HireRecord.employee_id == employee_id,
+            HireRecord.user_id == user_id,
+            HireRecord.status == "active"
+        ).first()
+        
+        if existing_hire:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="该员工已被雇佣"
             )
         
         # 雇佣员工
-        user_id = current_user.user_id if current_user else "anonymous"
         organization_id = hire_request.organization_id or (current_user.organization_id if current_user else None)
-        hired_employee = employee_service.hire_employee(employee_id, organization_id)
+        hired_employee = employee_service.hire_employee(
+            db=db,
+            employee_id=employee_id,
+            user_id=user_id,
+            organization_id=organization_id
+        )
         
         if not hired_employee:
             raise HTTPException(
@@ -294,6 +338,7 @@ async def hire_employee(
             detail=f"雇佣员工时发生错误: {str(e)}"
         )
 
+
 @router.post(
     "/{employee_id}/trial",
     response_model=SuccessResponse,
@@ -303,7 +348,8 @@ async def hire_employee(
 async def trial_employee(
     employee_id: str,
     trial_request: TrialRequest,
-    current_user: Optional[UserContext] = Depends(get_optional_user)
+    current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     试用员工端点
@@ -312,6 +358,7 @@ async def trial_employee(
         employee_id: 员工ID
         trial_request: 试用请求
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含试用结果
@@ -319,7 +366,7 @@ async def trial_employee(
     
     try:
         # 检查员工是否存在且已发布
-        existing_employee = employee_service.get_employee(employee_id)
+        existing_employee = employee_service.get_employee(db=db, employee_id=employee_id)
         
         if not existing_employee:
             raise HTTPException(
@@ -336,7 +383,12 @@ async def trial_employee(
         # 试用员工
         user_id = current_user.user_id if current_user else "anonymous"
         organization_id = trial_request.organization_id or (current_user.organization_id if current_user else None)
-        trial_employee_result = employee_service.trial_employee(employee_id, organization_id)
+        trial_employee_result = employee_service.trial_employee(
+            db=db,
+            employee_id=employee_id,
+            user_id=user_id,
+            organization_id=organization_id
+        )
         
         if not trial_employee_result:
             raise HTTPException(
@@ -366,6 +418,7 @@ async def trial_employee(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"试用员工时发生错误: {str(e)}"
         )
+
 
 # 导出路由器
 __all__ = ["router"]

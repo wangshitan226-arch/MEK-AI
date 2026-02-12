@@ -1,5 +1,5 @@
 """
-聊天API端点
+聊天API端点 - MySQL版本
 处理聊天相关的HTTP请求
 """
 
@@ -8,9 +8,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_optional_user, UserContext
+from app.db import get_db
 from app.services.ai.chat_service import chat_service
+from app.services.memory.conversation_memory import conversation_memory_manager
 from app.models.schemas import (
     ChatRequest,
     SuccessResponse
@@ -22,6 +25,7 @@ logger = get_logger(__name__)
 # 创建路由器
 router = APIRouter()
 
+
 @router.post(
     "/",
     response_model=SuccessResponse,
@@ -30,7 +34,8 @@ router = APIRouter()
 )
 async def send_chat_message(
     chat_request: ChatRequest,
-    current_user: Optional[UserContext] = Depends(get_optional_user)
+    current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     发送聊天消息端点
@@ -38,6 +43,7 @@ async def send_chat_message(
     Args:
         chat_request: 聊天请求数据
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含AI回复
@@ -76,6 +82,7 @@ async def send_chat_message(
         
         # 调用聊天服务处理消息
         result = await chat_service.process_chat_message(
+            db=db,
             message=chat_request.message,
             employee_id=chat_request.employee_id,
             conversation_id=chat_request.conversation_id,
@@ -131,6 +138,7 @@ async def send_chat_message(
             detail=f"处理聊天消息时发生错误: {str(e)}"
         )
 
+
 @router.get(
     "/conversations",
     response_model=SuccessResponse,
@@ -140,7 +148,8 @@ async def send_chat_message(
 async def get_conversations(
     employee_id: Optional[str] = None,
     limit: int = 20,
-    current_user: UserContext = Depends(get_current_user)
+    current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     获取对话列表端点
@@ -149,6 +158,7 @@ async def get_conversations(
         employee_id: 员工ID过滤（可选）
         limit: 返回数量限制
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含对话列表
@@ -156,9 +166,8 @@ async def get_conversations(
     
     try:
         # 获取对话列表
-        from app.services.memory.conversation_memory import conversation_memory_manager
-        
         conversations = conversation_memory_manager.list_conversations(
+            db=db,
             user_id=current_user.user_id,
             employee_id=employee_id
         )
@@ -191,6 +200,7 @@ async def get_conversations(
             detail=f"获取对话列表时发生错误: {str(e)}"
         )
 
+
 @router.get(
     "/conversations/{conversation_id}",
     response_model=SuccessResponse,
@@ -200,7 +210,8 @@ async def get_conversations(
 async def get_conversation_detail(
     conversation_id: str,
     limit: int = 50,
-    current_user: UserContext = Depends(get_current_user)
+    current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     获取对话详情端点
@@ -209,6 +220,7 @@ async def get_conversation_detail(
         conversation_id: 对话ID
         limit: 消息数量限制
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含对话详情
@@ -216,9 +228,10 @@ async def get_conversation_detail(
     
     try:
         # 获取对话状态
-        from app.services.memory.conversation_memory import conversation_memory_manager
-        
-        conversation_state = conversation_memory_manager.get_conversation_state(conversation_id)
+        conversation_state = conversation_memory_manager.get_conversation_state(
+            db=db, 
+            conversation_id=conversation_id
+        )
         
         if not conversation_state:
             raise HTTPException(
@@ -239,12 +252,16 @@ async def get_conversation_detail(
         
         # 获取对话历史
         messages = conversation_memory_manager.get_conversation_history(
-            conversation_id,
+            db=db,
+            conversation_id=conversation_id,
             limit=limit
         )
         
         # 获取对话摘要
-        summary = conversation_memory_manager.get_conversation_summary(conversation_id)
+        summary = conversation_memory_manager.get_conversation_summary(
+            db=db,
+            conversation_id=conversation_id
+        )
         
         logger.info(f"获取对话详情 - "
                    f"对话: {conversation_id}, "
@@ -258,8 +275,8 @@ async def get_conversation_detail(
                 "employee_id": conversation_state.employee_id,
                 "user_id": conversation_state.user_id,
                 "organization_id": conversation_state.organization_id,
-                "created_at": conversation_state.created_at.isoformat(),
-                "updated_at": conversation_state.updated_at.isoformat(),
+                "created_at": conversation_state.created_at.isoformat() if hasattr(conversation_state.created_at, 'isoformat') else str(conversation_state.created_at),
+                "updated_at": conversation_state.updated_at.isoformat() if hasattr(conversation_state.updated_at, 'isoformat') else str(conversation_state.updated_at),
                 "message_count": len(messages),
                 "summary": summary,
                 "messages": messages,
@@ -277,6 +294,7 @@ async def get_conversation_detail(
             detail=f"获取对话详情时发生错误: {str(e)}"
         )
 
+
 @router.delete(
     "/conversations/{conversation_id}",
     response_model=SuccessResponse,
@@ -285,7 +303,8 @@ async def get_conversation_detail(
 )
 async def delete_conversation(
     conversation_id: str,
-    current_user: UserContext = Depends(get_current_user)
+    current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     删除对话端点
@@ -293,6 +312,7 @@ async def delete_conversation(
     Args:
         conversation_id: 对话ID
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应
@@ -300,9 +320,10 @@ async def delete_conversation(
     
     try:
         # 获取对话状态
-        from app.services.memory.conversation_memory import conversation_memory_manager
-        
-        conversation_state = conversation_memory_manager.get_conversation_state(conversation_id)
+        conversation_state = conversation_memory_manager.get_conversation_state(
+            db=db,
+            conversation_id=conversation_id
+        )
         
         if not conversation_state:
             raise HTTPException(
@@ -322,7 +343,10 @@ async def delete_conversation(
             )
         
         # 删除对话
-        success = conversation_memory_manager.delete_conversation(conversation_id)
+        success = conversation_memory_manager.delete_conversation(
+            db=db,
+            conversation_id=conversation_id
+        )
         
         if not success:
             raise HTTPException(
@@ -353,6 +377,7 @@ async def delete_conversation(
             detail=f"删除对话时发生错误: {str(e)}"
         )
 
+
 @router.get(
     "/agents",
     response_model=SuccessResponse,
@@ -360,13 +385,15 @@ async def delete_conversation(
     description="获取所有可用的数字员工智能体"
 )
 async def get_agents(
-    current_user: UserContext = Depends(get_current_user)
+    current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """
     获取智能体列表端点
     
     Args:
         current_user: 当前用户上下文
+        db: 数据库会话
         
     Returns:
         SuccessResponse: 成功响应，包含智能体列表
@@ -402,6 +429,7 @@ async def get_agents(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取智能体列表时发生错误: {str(e)}"
         )
+
 
 # 导出路由器
 __all__ = ["router"]

@@ -129,28 +129,32 @@ Final Answer: 最终答案
                 from langchain.chains import LLMChain
                 
                 # 构建RAG检索的系统提示
-                # 允许LLM自主判断是否需要使用知识库
+                # 强制每次必检索，确保回答基于知识库内容
                 rag_system_prompt = self.config.system_prompt + """
 
-INSTRUCTION: Use the knowledge_retrieval tool ONLY when you need specific information from the knowledge base to answer the question.
-Do NOT search for information you already have or for simple greetings/confirmations.
+MANDATORY RULE: You MUST use the knowledge_retrieval tool for EVERY user question.
+This ensures your answer is always based on the knowledge base content.
 
-Follow this workflow:
-1. Start with a Thought about what the user is asking
-2. If you ALREADY have enough information from previous conversation or general knowledge, go directly to Final Answer
-3. If you NEED specific information from the knowledge base, use the knowledge_retrieval tool with Action/Action Input
-4. Wait for the Observation (tool result)
-5. After getting information (or if you already had it), provide your Final Answer
+CRITICAL WORKFLOW - You MUST follow this exact format:
 
-IMPORTANT: Do NOT keep searching repeatedly. Search once at most, then provide your answer.
+Step 1 - Think and Retrieve:
+Thought: [Analyze what the user is asking]
+Action: knowledge_retrieval
+Action Input: [The user's question or key keywords]
 
-Use the following format:
-Thought: think about what to do and whether you need to search
-Action: the action to take (only if you need to search)
-Action Input: the input to the action
-Observation: the result of the action (this will be provided to you)
-Thought: I now know the final answer (or I already knew it)
-Final Answer: the final answer to the original question
+Step 2 - Wait for Observation (this will be provided to you):
+Observation: [Knowledge base content will appear here]
+
+Step 3 - Provide Final Answer:
+Thought: [Analyze the retrieved information]
+Final Answer: [Your response based on the retrieved knowledge]
+
+STRICT CONSTRAINTS:
+- ALWAYS use Action: knowledge_retrieval in Step 1
+- NEVER skip the Action step
+- After Observation, go directly to Final Answer
+- Do NOT use Action more than once
+- Your Final Answer must be based on the retrieved knowledge
 
 You have access to the following tools:"""
                 
@@ -187,12 +191,16 @@ Question: {input}
                     return_messages=True
                 )
 
+                # 强制单次检索：限制迭代次数为3，确保最多只检索一次
+                # 迭代1: Thought -> Action(检索) -> Observation
+                # 迭代2: Thought -> Final Answer
                 self.agent_executor = AgentExecutor.from_agent_and_tools(
                     agent=agent,
                     tools=self.tools,
                     memory=memory,
                     verbose=True,
-                    max_iterations=self.config.max_iterations,
+                    max_iterations=3,  # 最多3次迭代，给LLM足够空间完成格式
+                    early_stopping_method="force",  # 强制停止，不额外生成
                     handle_parsing_errors=True
                 )
             

@@ -7,6 +7,8 @@ import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
 
+from sqlalchemy.orm import Session
+
 from app.services.ai.model_manager import model_manager
 from app.services.memory.conversation_memory import conversation_memory_manager
 from app.services.employee_service import employee_service
@@ -32,6 +34,7 @@ class ChatService(LoggerMixin):
     @log_execution_time()
     async def process_chat_message(
         self,
+        db: Session,
         message: str,
         employee_id: str,
         conversation_id: Optional[str] = None,
@@ -42,6 +45,7 @@ class ChatService(LoggerMixin):
         处理聊天消息
         
         Args:
+            db: 数据库会话
             message: 用户消息
             employee_id: 员工ID
             conversation_id: 对话ID，如果为None则创建新对话
@@ -65,6 +69,7 @@ class ChatService(LoggerMixin):
             
             # 2. 获取或创建对话
             conversation_info = await self._get_or_create_conversation(
+                db=db,
                 conversation_id=conversation_id,
                 employee_id=employee_id,
                 user_context=user_context
@@ -72,6 +77,7 @@ class ChatService(LoggerMixin):
             
             # 3. 获取或创建员工智能体
             employee_agent = await self._get_or_create_employee_agent(
+                db=db,
                 employee_id=employee_id,
                 model_config=model_config
             )
@@ -81,6 +87,7 @@ class ChatService(LoggerMixin):
             
             # 4. 准备上下文
             context = self._prepare_context(
+                db=db,
                 conversation_info=conversation_info,
                 user_context=user_context
             )
@@ -143,6 +150,7 @@ class ChatService(LoggerMixin):
     
     async def _get_or_create_conversation(
         self,
+        db: Session,
         conversation_id: Optional[str],
         employee_id: str,
         user_context: Optional[Dict[str, Any]]
@@ -151,6 +159,7 @@ class ChatService(LoggerMixin):
         获取或创建对话
         
         Args:
+            db: 数据库会话
             conversation_id: 对话ID
             employee_id: 员工ID
             user_context: 用户上下文
@@ -161,7 +170,7 @@ class ChatService(LoggerMixin):
         
         # 如果有对话ID，检查对话是否存在
         if conversation_id:
-            conversation_state = conversation_memory_manager.get_conversation_state(conversation_id)
+            conversation_state = conversation_memory_manager.get_conversation_state(db, conversation_id)
             
             if conversation_state:
                 # 验证对话属于当前员工
@@ -177,6 +186,7 @@ class ChatService(LoggerMixin):
         
         # 创建新对话
         new_conversation_id = conversation_memory_manager.create_conversation(
+            db=db,
             employee_id=employee_id,
             user_id=user_context.get("user_id") if user_context else None,
             organization_id=user_context.get("organization_id") if user_context else None,
@@ -197,6 +207,7 @@ class ChatService(LoggerMixin):
     
     async def _get_or_create_employee_agent(
         self,
+        db: Session,
         employee_id: str,
         model_config: Optional[Dict[str, Any]] = None
     ) -> Optional[DigitalEmployeeAgent]:
@@ -204,6 +215,7 @@ class ChatService(LoggerMixin):
         获取或创建员工智能体
         
         Args:
+            db: 数据库会话
             employee_id: 员工ID
             model_config: 模型配置覆盖
             
@@ -239,7 +251,7 @@ class ChatService(LoggerMixin):
             chat_model = model_manager.create_chat_model(config)
             
             # 获取员工配置（从员工服务获取真实数据）
-            employee_config = self._get_employee_config(employee_id)
+            employee_config = self._get_employee_config(db, employee_id)
             
             # 创建工具列表
             tools = []
@@ -271,13 +283,14 @@ class ChatService(LoggerMixin):
             self.log_error(f"创建员工智能体失败: {employee_id}, 错误: {str(e)}", error=e)
             return None
     
-    def _get_employee_config(self, employee_id: str) -> Dict[str, Any]:
+    def _get_employee_config(self, db: Session, employee_id: str) -> Dict[str, Any]:
         """
         获取员工配置
         
         从员工服务获取真实员工数据
         
         Args:
+            db: 数据库会话
             employee_id: 员工ID
             
         Returns:
@@ -285,7 +298,7 @@ class ChatService(LoggerMixin):
         """
         
         # 从员工服务获取真实员工数据
-        employee = employee_service.get_employee(employee_id)
+        employee = employee_service.get_employee(db, employee_id)
         
         if employee:
             # 使用真实员工数据
@@ -314,6 +327,7 @@ class ChatService(LoggerMixin):
     
     def _prepare_context(
         self,
+        db: Session,
         conversation_info: Dict[str, Any],
         user_context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -321,6 +335,7 @@ class ChatService(LoggerMixin):
         准备上下文信息
         
         Args:
+            db: 数据库会话
             conversation_info: 对话信息
             user_context: 用户上下文
             
@@ -344,7 +359,8 @@ class ChatService(LoggerMixin):
         # 获取对话历史
         if conversation_info["conversation_id"]:
             history = conversation_memory_manager.get_conversation_history(
-                conversation_info["conversation_id"],
+                db=db,
+                conversation_id=conversation_info["conversation_id"],
                 limit=10  # 限制历史条数
             )
             context["chat_history"] = history

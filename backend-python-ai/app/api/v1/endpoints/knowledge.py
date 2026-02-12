@@ -1,15 +1,19 @@
 """
-知识库管理API端点
+知识库管理API端点 - MySQL版本
 """
 
 from typing import Optional, List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Body
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_optional_user, UserContext
+from app.db import get_db
 from app.services.knowledge.knowledge_service import knowledge_service
 from app.services.knowledge.document_processor import document_processor
 from app.services.knowledge.rag_service import rag_service
+from app.db.repositories import knowledge_repository
+from app.db.models import KnowledgeBase
 from app.models.schemas import (
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,
@@ -45,6 +49,7 @@ async def get_knowledge_bases(
     page: int = 1,
     page_size: int = 20,
     current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """获取知识库列表"""
     try:
@@ -52,6 +57,7 @@ async def get_knowledge_bases(
         
         # 获取知识库列表
         knowledge_bases = await knowledge_service.list_knowledge_bases(
+            db=db,
             user_id=user_id,
             status=status,
             is_public=is_public,
@@ -60,12 +66,11 @@ async def get_knowledge_bases(
         )
         
         # 获取总数
-        all_kbs = await knowledge_service.list_knowledge_bases(user_id=user_id)
-        total = len(all_kbs)
+        total = knowledge_repository.kb_repo.count(db)
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
         items = [kb.dict() for kb in knowledge_bases]
-        logger.info(f"返回知识库列表: {len(items)} 个, doc_counts={[item.get('doc_count', 0) for item in items]}")
+        logger.info(f"返回知识库列表: {len(items)} 个")
         
         return SuccessResponse(
             success=True,
@@ -98,10 +103,12 @@ async def get_knowledge_bases(
 async def create_knowledge_base(
     kb_data: KnowledgeBaseCreate = Body(...),
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """创建知识库"""
     try:
         knowledge_base = await knowledge_service.create_knowledge_base(
+            db=db,
             kb_data=kb_data,
             user_id=current_user.user_id,
             organization_id=current_user.organization_id,
@@ -138,12 +145,14 @@ async def create_knowledge_base(
 async def get_knowledge_base_detail(
     knowledge_base_id: str,
     current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """获取知识库详情"""
     try:
         user_id = current_user.user_id if current_user else None
         
         knowledge_base = await knowledge_service.get_knowledge_base(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=user_id,
         )
@@ -180,10 +189,12 @@ async def update_knowledge_base(
     knowledge_base_id: str,
     update_data: KnowledgeBaseUpdate = Body(...),
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """更新知识库"""
     try:
         knowledge_base = await knowledge_service.update_knowledge_base(
+            db=db,
             kb_id=knowledge_base_id,
             update_data=update_data,
             user_id=current_user.user_id,
@@ -220,6 +231,7 @@ async def update_knowledge_base(
 async def delete_knowledge_base(
     knowledge_base_id: str,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """删除知识库"""
     try:
@@ -228,6 +240,7 @@ async def delete_knowledge_base(
         
         # 删除知识库记录
         success = await knowledge_service.delete_knowledge_base(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=current_user.user_id,
         )
@@ -269,12 +282,14 @@ async def upload_document(
     chunk_size: int = Form(1000),
     chunk_overlap: int = Form(200),
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """上传文档"""
     logger.info(f"上传文档参数: chunk_size={chunk_size}, chunk_overlap={chunk_overlap}")
     try:
         # 检查知识库是否存在
         kb = await knowledge_service.get_knowledge_base(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=current_user.user_id,
         )
@@ -330,7 +345,9 @@ async def upload_document(
             
             # 更新向量化状态
             await knowledge_service.update_vectorized_status(
-                knowledge_base_id, True
+                db=db,
+                kb_id=knowledge_base_id,
+                vectorized=True
             )
         
         return SuccessResponse(
@@ -367,12 +384,14 @@ async def get_knowledge_base_documents(
     page: int = 1,
     page_size: int = 20,
     current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """获取知识库文档列表"""
     try:
         user_id = current_user.user_id if current_user else None
         
         items = await knowledge_service.get_knowledge_items(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=user_id,
             limit=page_size,
@@ -380,11 +399,7 @@ async def get_knowledge_base_documents(
         )
         
         # 获取总数
-        all_items = await knowledge_service.get_knowledge_items(
-            kb_id=knowledge_base_id,
-            user_id=user_id,
-        )
-        total = len(all_items)
+        total = len(items)
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
         return SuccessResponse(
@@ -422,6 +437,7 @@ async def parse_document(
     file_id: str,
     config: DocumentUploadConfig,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """解析文档"""
     try:
@@ -490,10 +506,12 @@ async def save_knowledge_items(
     knowledge_base_id: str,
     items: List[KnowledgeItemCreate] = Body(...),
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """保存知识点"""
     try:
         success = await knowledge_service.add_knowledge_items(
+            db=db,
             kb_id=knowledge_base_id,
             items=[item.dict() for item in items],
             user_id=current_user.user_id,
@@ -530,7 +548,9 @@ async def save_knowledge_items(
     summary="获取文档处理配置",
     description="获取默认的文档处理配置（前端需要）"
 )
-async def get_document_config() -> SuccessResponse:
+async def get_document_config(
+    db: Session = Depends(get_db)
+) -> SuccessResponse:
     """获取文档处理配置"""
     try:
         config = await knowledge_service.get_document_config()
@@ -557,6 +577,7 @@ async def get_document_config() -> SuccessResponse:
 )
 async def update_document_config(
     config: DocumentUploadConfig,
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """更新文档处理配置"""
     try:
@@ -585,10 +606,12 @@ async def delete_knowledge_item(
     knowledge_base_id: str,
     item_id: str,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """删除知识点"""
     try:
         success = await knowledge_service.delete_knowledge_item(
+            db=db,
             kb_id=knowledge_base_id,
             item_id=item_id,
             user_id=current_user.user_id,
@@ -625,10 +648,12 @@ async def delete_knowledge_item(
 async def clear_knowledge_items(
     knowledge_base_id: str,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """清空知识库"""
     try:
         success = await knowledge_service.clear_knowledge_items(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=current_user.user_id,
         )
@@ -667,6 +692,7 @@ async def search_knowledge_base(
     knowledge_base_id: str,
     request: KnowledgeSearchRequest,
     current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """搜索知识库"""
     try:
@@ -674,6 +700,7 @@ async def search_knowledge_base(
         
         # 检查知识库权限
         kb = await knowledge_service.get_knowledge_base(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=user_id,
         )
@@ -722,6 +749,7 @@ async def search_knowledge_base(
 async def get_knowledge_base_stats(
     knowledge_base_id: str,
     current_user: Optional[UserContext] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
 ) -> SuccessResponse:
     """获取知识库统计"""
     try:
@@ -729,6 +757,7 @@ async def get_knowledge_base_stats(
         
         # 检查知识库权限
         kb = await knowledge_service.get_knowledge_base(
+            db=db,
             kb_id=knowledge_base_id,
             user_id=user_id,
         )

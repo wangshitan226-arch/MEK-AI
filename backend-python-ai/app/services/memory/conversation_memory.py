@@ -11,6 +11,7 @@ from dataclasses import dataclass, asdict
 
 from langchain.memory import ConversationBufferMemory, ConversationSummaryMemory
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from sqlalchemy.orm import Session
 
 from app.config.settings import settings
 from app.utils.logger import LoggerMixin
@@ -56,6 +57,7 @@ class ConversationMemoryManager(LoggerMixin):
     
     def create_conversation(
         self,
+        db: Session,
         employee_id: str,
         user_id: Optional[str] = None,
         organization_id: Optional[str] = None,
@@ -66,6 +68,7 @@ class ConversationMemoryManager(LoggerMixin):
         创建新对话
         
         Args:
+            db: 数据库会话
             employee_id: 员工ID
             user_id: 用户ID
             organization_id: 组织ID
@@ -235,11 +238,16 @@ class ConversationMemoryManager(LoggerMixin):
         
         return messages
     
-    def get_conversation_state(self, conversation_id: str) -> Optional[ConversationState]:
+    def get_conversation_state(
+        self,
+        db: Session,
+        conversation_id: str
+    ) -> Optional[ConversationState]:
         """
         获取对话状态
         
         Args:
+            db: 数据库会话
             conversation_id: 对话ID
             
         Returns:
@@ -250,6 +258,7 @@ class ConversationMemoryManager(LoggerMixin):
     
     def get_conversation_history(
         self,
+        db: Session,
         conversation_id: str,
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
@@ -257,6 +266,7 @@ class ConversationMemoryManager(LoggerMixin):
         获取对话历史（字典格式，保持向后兼容）
         
         Args:
+            db: 数据库会话
             conversation_id: 对话ID
             limit: 限制返回的消息数量，None表示返回所有
             
@@ -274,11 +284,16 @@ class ConversationMemoryManager(LoggerMixin):
         
         return messages
     
-    def get_conversation_summary(self, conversation_id: str) -> Optional[str]:
+    def get_conversation_summary(
+        self,
+        db: Session,
+        conversation_id: str
+    ) -> Optional[str]:
         """
         获取对话摘要（使用LangChain的摘要记忆）
         
         Args:
+            db: 数据库会话
             conversation_id: 对话ID
             
         Returns:
@@ -289,7 +304,7 @@ class ConversationMemoryManager(LoggerMixin):
             return None
         
         # 获取对话历史
-        messages = self.get_conversation_history(conversation_id)
+        messages = self.get_conversation_history(db, conversation_id)
         
         # 过滤系统消息
         non_system_messages = [m for m in messages if m["role"] != "system"]
@@ -308,11 +323,16 @@ class ConversationMemoryManager(LoggerMixin):
         
         return summary
     
-    def delete_conversation(self, conversation_id: str) -> bool:
+    def delete_conversation(
+        self,
+        db: Session,
+        conversation_id: str
+    ) -> bool:
         """
         删除对话
         
         Args:
+            db: 数据库会话
             conversation_id: 对话ID
             
         Returns:
@@ -334,6 +354,7 @@ class ConversationMemoryManager(LoggerMixin):
     
     def list_conversations(
         self,
+        db: Session,
         user_id: Optional[str] = None,
         employee_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -341,6 +362,7 @@ class ConversationMemoryManager(LoggerMixin):
         列出对话
         
         Args:
+            db: 数据库会话
             user_id: 过滤用户ID
             employee_id: 过滤员工ID
             
@@ -359,7 +381,10 @@ class ConversationMemoryManager(LoggerMixin):
                 continue
             
             # 获取对话摘要
-            summary = self.get_conversation_summary(conv_id)
+            try:
+                summary = self.get_conversation_summary(db, conv_id)
+            except Exception:
+                summary = None
             
             conversation_info = {
                 "conversation_id": conv_id,

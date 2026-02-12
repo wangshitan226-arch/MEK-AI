@@ -52,6 +52,49 @@ async def lifespan(app: FastAPI):
         from app.services.memory.conversation_memory import conversation_memory_manager
         logger.info("对话记忆管理器初始化状态: 已完成")
         
+        # 初始化数据库和默认数据
+        try:
+            from app.db import init_db, SessionLocal
+            from app.db.models import User, Organization
+            
+            # 初始化数据库表
+            init_db()
+            logger.info("数据库表初始化: 完成")
+            
+            # 检查是否需要创建默认数据
+            db = SessionLocal()
+            try:
+                # 检查默认组织是否存在
+                org = db.query(Organization).filter_by(id="org_default").first()
+                if not org:
+                    logger.info("创建默认组织和系统用户...")
+                    org = Organization(
+                        id="org_default",
+                        name="默认组织",
+                        description="系统默认组织",
+                        status="active"
+                    )
+                    db.add(org)
+                    
+                    user = User(
+                        id="system",
+                        username="system",
+                        email="system@mekai.ai",
+                        organization_id="org_default",
+                        role="admin",
+                        status="active"
+                    )
+                    db.add(user)
+                    db.commit()
+                    logger.info("默认组织和系统用户创建完成")
+                else:
+                    logger.info("默认组织和系统用户已存在")
+            finally:
+                db.close()
+                
+        except Exception as db_error:
+            logger.warning(f"数据库初始化跳过: {db_error}")
+        
         # 检查API密钥配置
         if settings.OPENAI_API_KEY:
             logger.info("OpenAI API密钥: 已配置")

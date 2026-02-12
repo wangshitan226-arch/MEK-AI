@@ -77,12 +77,26 @@ class EmployeeResponse(EmployeeBase):
     created_by: Optional[str] = Field(None, description="创建者ID")
     is_hot: Optional[bool] = Field(None, description="是否热门")
     original_price: Optional[int] = Field(None, description="原价")
+    employee_type: str = Field(default="user", description="员工类型: system-系统级, user-用户级")
+    is_system_default: bool = Field(default=False, description="是否为系统默认员工")
+    # 新增字段 - 与数据库模型保持一致
+    welcome_message: Optional[str] = Field(None, description="欢迎消息")
+    personality: Optional[str] = Field(None, description="个性描述")
+    organization_id: Optional[str] = Field(None, description="组织ID")
+    model_config_json: Optional[Dict[str, Any]] = Field(None, description="模型配置", alias="model_config")
 
     class Config:
         from_attributes = True
         json_encoders = {
             datetime: lambda dt: dt.isoformat()
         }
+
+
+class SystemEmployeeCreate(EmployeeBase):
+    """系统级员工创建模型（管理员用）"""
+    employee_type: str = Field(default="system", description="员工类型")
+    is_system_default: bool = Field(default=False, description="是否为系统默认员工")
+    status: str = Field(default="published", description="状态: 系统级员工默认发布")
 
 
 class BaseModel(PydanticBaseModel):

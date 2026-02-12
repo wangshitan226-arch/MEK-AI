@@ -10,6 +10,7 @@ from langchain.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from app.services.knowledge.knowledge_service import knowledge_service
+from app.db.database import get_db
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -99,12 +100,14 @@ class KnowledgeRetrievalTool(BaseTool):
         Returns:
             str: 检索结果文本
         """
+        # 获取数据库会话
+        db = next(get_db())
         try:
             # 获取知识库信息
             results = []
             for kb_id in kb_ids:
                 try:
-                    kb = await knowledge_service.get_knowledge_base(kb_id)
+                    kb = await knowledge_service.get_knowledge_base(db, kb_id)
                     if kb:
                         results.append(f"Knowledge Base '{kb.name}': Contains {kb.doc_count} documents")
                         
@@ -113,7 +116,7 @@ class KnowledgeRetrievalTool(BaseTool):
                         # 目前返回知识库基本信息作为示例
                         
                         # 获取知识库中的文档列表
-                        items = await knowledge_service.get_knowledge_items(kb_id)
+                        items = await knowledge_service.get_knowledge_items(db, kb_id)
                         if items:
                             results.append(f"  Available documents: {len(items)}")
                             for item in items[:3]:  # 只显示前3个文档
@@ -137,6 +140,8 @@ class KnowledgeRetrievalTool(BaseTool):
         except Exception as e:
             logger.error(f"Async knowledge retrieval failed: {str(e)}")
             return f"Knowledge retrieval failed: {str(e)}"
+        finally:
+            db.close()
     
     async def _arun(
         self,

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { MarketplaceStore } from '../../types';
-import { getEmployees, getCategories, hireEmployee } from '../services/employeeApi';
+import { getEmployees, getCategories, hireEmployee as hireEmployeeApi } from '../services/employeeApi';
 import { mockCategories } from '../services/mockData';
 import { useUserStore } from '@/core/store/userStore';
 
@@ -28,7 +28,7 @@ export const useMarketplaceStore = create<MarketplaceStore>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      const result = await hireEmployee(employeeId);
+      const result = await hireEmployeeApi(employeeId);
 
       if (result.success) {
         const employee = get().employees.find(emp => emp.id === employeeId);
@@ -99,22 +99,33 @@ export const useMarketplaceStore = create<MarketplaceStore>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
+      // 从API获取员工列表，API已根据当前用户返回正确的is_hired状态
       const employees = await getEmployees();
+      
+      // 调试：打印API返回的原始数据
+      console.log('[loadEmployees] API返回:', employees.map(e => ({ id: e.id, name: e.name, isHired: e.isHired, isRecruited: e.isRecruited })));
 
-      // 从全局userStore获取已招聘的员工ID
+      // 直接使用API返回的状态，不再从userStore覆盖
+      // 后端已经根据当前用户的hire_records查询了正确的is_hired状态
+      const employeesWithStatus = employees.map(emp => ({
+        ...emp,
+        // 确保布尔值类型正确
+        isHired: Boolean(emp.isHired),
+        isRecruited: Boolean(emp.isRecruited),
+        isInTrial: emp.isInTrial || false,
+        hiredAt: emp.hiredAt || (emp.isHired ? new Date().toISOString() : undefined)
+      }));
+      
+      // 调试：打印处理后的数据
+      console.log('[loadEmployees] 处理后:', employeesWithStatus.map(e => ({ id: e.id, name: e.name, isHired: e.isHired, isRecruited: e.isRecruited })));
+
+      // 同时同步到userStore（用于其他页面）
       const userStore = useUserStore.getState();
-      const recruitedIds = userStore.recruitedEmployees.map(emp => emp.id);
-
-      // 同步状态：如果员工在userStore中已招聘，则更新本地状态
-      const employeesWithStatus = employees.map(emp => {
-        const isRecruited = recruitedIds.includes(emp.id);
-        return {
-          ...emp,
-          isHired: isRecruited,
-          isRecruited: isRecruited,
-          isInTrial: false,
-          hiredAt: isRecruited ? new Date().toISOString() : undefined
-        };
+      const hiredEmployees = employeesWithStatus.filter(emp => emp.isHired);
+      hiredEmployees.forEach(emp => {
+        if (!userStore.recruitedEmployees.find(re => re.id === emp.id)) {
+          userStore.addRecruitedEmployee(emp);
+        }
       });
 
       set({
@@ -122,7 +133,8 @@ export const useMarketplaceStore = create<MarketplaceStore>((set, get) => ({
         loading: false
       });
 
-      console.log(`加载了 ${employeesWithStatus.length} 个员工，其中 ${recruitedIds.length} 个已招聘`);
+      const hiredCount = employeesWithStatus.filter(emp => emp.isHired).length;
+      console.log(`[loadEmployees] 加载了 ${employeesWithStatus.length} 个员工，其中 ${hiredCount} 个已招聘`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : '加载员工数据失败';
       set({ error: errorMsg, loading: false });

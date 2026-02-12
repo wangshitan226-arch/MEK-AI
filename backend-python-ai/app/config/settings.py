@@ -98,6 +98,13 @@ class Settings(BaseSettings):
         description="允许的文件扩展名"
     )
     
+    # ==================== MySQL数据库配置 ====================
+    MYSQL_HOST: str = Field(default="localhost", description="MySQL主机")
+    MYSQL_PORT: int = Field(default=3306, description="MySQL端口")
+    MYSQL_USER: str = Field(default="root", description="MySQL用户名")
+    MYSQL_PASSWORD: str = Field(default="", description="MySQL密码")
+    MYSQL_DATABASE: str = Field(default="mekai", description="MySQL数据库名")
+    
     # ==================== Redis配置 ====================
     REDIS_HOST: str = Field(default="localhost", description="Redis主机")
     REDIS_PORT: int = Field(default=6379, description="Redis端口")

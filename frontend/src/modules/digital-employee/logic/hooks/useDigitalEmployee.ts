@@ -8,8 +8,19 @@ export const useDigitalEmployee = () => {
   const store = useDigitalEmployeeStore();
   const editorStore = useDigitalEmployeeEditorStore();
 
-  // 加载数据
+  // 加载数据 - 页面加载时触发一次，后续根据tab切换触发
   useEffect(() => {
+    // 页面加载时根据当前tab加载数据
+    if (store.activeTab === 'created') {
+      store.loadCreatedEmployees();
+    } else {
+      store.loadHiredEmployees();
+    }
+  }, []);
+  
+  // Tab切换时加载数据
+  useEffect(() => {
+    // 跳过首次渲染（已由上面的useEffect处理）
     if (store.activeTab === 'created') {
       store.loadCreatedEmployees();
     } else {

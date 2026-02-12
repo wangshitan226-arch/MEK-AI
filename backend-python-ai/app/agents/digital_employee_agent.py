@@ -11,8 +11,6 @@ from langchain.agents import AgentExecutor
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
-# 导入 conversation_memory_manager 以使用新的方法
-from app.services.memory.conversation_memory import conversation_memory_manager
 from app.agents.base_agent import BaseAgent, AgentConfig
 from app.config.settings import settings
 from app.utils.logger import LoggerMixin
@@ -149,16 +147,7 @@ class DigitalEmployeeAgent(BaseAgent):
                 return await self._fallback_to_direct_llm(message, context, start_time)
             
             # 获取对话历史 - 从 context 中获取（chat_service 已经查询并放入）
-            # 或者自己查询，使用 get_conversation_history 返回字典格式
-            conversation_id = context.get("conversation_id")
             chat_history = context.get("chat_history", [])
-            
-            # 如果 context 中没有，自己查询
-            if not chat_history and conversation_id:
-                chat_history = conversation_memory_manager.get_conversation_history(
-                    conversation_id, 
-                    limit=10
-                )
             
             # 根据是否有工具，使用不同的输入格式
             if self.tools:
@@ -211,6 +200,27 @@ class DigitalEmployeeAgent(BaseAgent):
         except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds()
             self.log_error(f"处理消息时出错: {str(e)}", error=e)
+            
+            # 【增强错误处理】尝试从错误中提取LLM输出
+            error_str = str(e)
+            if "Could not parse LLM output" in error_str:
+                # 提取LLM实际输出的内容
+                import re
+                match = re.search(r"LLM output: `(.+)`", error_str, re.DOTALL)
+                if match:
+                    llm_output = match.group(1).strip()
+                    self.log_info(f"从错误中提取到LLM输出，长度: {len(llm_output)}")
+                    
+                    # 如果LLM输出看起来是有效的回答，直接使用
+                    if len(llm_output) > 20 and not llm_output.startswith("Thought:"):
+                        return self._create_success_response(
+                            message=message,
+                            response=llm_output,
+                            context=context,
+                            processing_time=processing_time,
+                            intermediate_steps=[]
+                        )
+            
             return self._create_error_response(str(e), processing_time)
     
     async def _fallback_to_direct_llm(
@@ -272,15 +282,18 @@ class DigitalEmployeeAgent(BaseAgent):
             Dict: 智能体输入参数字典
         """
         
-        conversation_id = context.get("conversation_id")
-        
-        # 获取LangChain格式的对话历史
+        # 从 context 获取对话历史（chat_service 已经查询并放入）
+        # chat_history 是字典列表格式，需要转换为 BaseMessage 列表
+        chat_history_raw = context.get("chat_history", [])
         chat_history: List[BaseMessage] = []
-        if conversation_id:
-            chat_history = conversation_memory_manager.get_conversation_messages(
-                conversation_id, 
-                limit=10
-            )
+        
+        for msg in chat_history_raw:
+            role = msg.get('role')
+            content = msg.get('content', '')
+            if role == 'user':
+                chat_history.append(HumanMessage(content=content))
+            elif role == 'assistant':
+                chat_history.append(AIMessage(content=content))
         
         # 【关键修复】确保 agent_scratchpad 是 BaseMessage 列表
         # 即使为空，也必须是 BaseMessage 类型的空列表
@@ -288,6 +301,7 @@ class DigitalEmployeeAgent(BaseAgent):
         
         # 因此，最简单的修复：完全移除 agent_scratchpad 键
         # 让 LangChain 内部机制处理它
+        
         inputs = {
             "input": message,
             "chat_history": chat_history,

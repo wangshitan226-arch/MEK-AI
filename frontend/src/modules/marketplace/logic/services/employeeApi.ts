@@ -39,8 +39,17 @@ export async function getEmployees(): Promise<Employee[]> {
   }
 
   // 后端返回格式: { items: [...], total: ... }
+  // 注意：apiClient 已经使用 keysToCamel 将 snake_case 转为 camelCase
   const items = response.data.items || response.data;
-  return transformEmployeesFromApi(items);
+  
+  // 数据已经是 camelCase，只需要确保 avatar 有默认值
+  return items.map((emp: any) => ({
+    ...emp,
+    avatar: emp.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp.name)}&background=random`,
+    // 确保布尔值正确
+    isHired: Boolean(emp.isHired),
+    isRecruited: Boolean(emp.isRecruited),
+  }));
 }
 
 /**
@@ -164,13 +173,42 @@ export async function sendChatMessage(
   });
 
   // 后端返回格式: { success: true, message: "消息处理成功", data: { response: "AI回复", ... } }
-  if (!response.success || !response.data) {
+  // 注意：response.message 是状态消息，AI回复在 response.data.response 中
+  if (!response.success) {
     throw new Error(response.message || '聊天请求失败');
   }
 
+  // 增强的响应解析逻辑
+  let aiMessage = '';
+  let conversationId = sessionId;
+
+  if (response.data) {
+    // 尝试多种可能的字段名
+    aiMessage = response.data.response 
+      || response.data.answer 
+      || response.data.content 
+      || response.data.message 
+      || '';
+    
+    conversationId = response.data.conversation_id 
+      || response.data.conversationId 
+      || sessionId;
+  }
+
+  // 如果仍然没有消息，使用外层message（兼容旧版本）
+  if (!aiMessage && response.message && response.message !== '消息处理成功') {
+    aiMessage = response.message;
+  }
+
+  // 确保有返回消息
+  if (!aiMessage) {
+    console.error('API响应结构:', response);
+    throw new Error('AI回复内容为空，请检查后端响应格式');
+  }
+
   return {
-    message: response.data.response || response.data.message || '无回复',
-    conversation_id: response.data.conversation_id,
+    message: aiMessage,
+    conversation_id: conversationId,
   };
 }
 

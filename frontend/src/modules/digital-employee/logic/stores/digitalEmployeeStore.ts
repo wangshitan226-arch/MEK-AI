@@ -50,12 +50,24 @@ export const useDigitalEmployeeStore = create<DigitalEmployeeStore>((set, get) =
     }
   },
 
-  // 加载招聘的数字员工（从userStore同步）
+  // 加载招聘的数字员工（从API获取并筛选已招聘的）
   loadHiredEmployees: async () => {
     set({ loading: true, error: null });
     try {
+      // 从marketplace API获取所有员工，筛选出已招聘的
+      const { getEmployees } = await import('@/modules/marketplace/logic/services/employeeApi');
+      const allEmployees = await getEmployees();
+      const hiredEmployees = allEmployees.filter(emp => emp.isHired || emp.isRecruited);
+      
+      // 同时更新userStore
       const userStore = useUserStore.getState();
-      const normalizedEmployees = userStore.recruitedEmployees.map(normalizeEmployee);
+      hiredEmployees.forEach(emp => {
+        if (!userStore.recruitedEmployees.find(re => re.id === emp.id)) {
+          userStore.addRecruitedEmployee(emp);
+        }
+      });
+      
+      const normalizedEmployees = hiredEmployees.map(normalizeEmployee);
       set({ hiredEmployees: normalizedEmployees, loading: false });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : '加载招聘员工失败';
